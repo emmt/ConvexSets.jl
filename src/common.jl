@@ -64,6 +64,9 @@ for some `ϵ > 0`.
 
 See [`ConvexSets.project_direction!`](@ref) for an in-place version.
 
+!!! warning
+    It is assumed that the variables `x0` are feasible, i.e. that `x0 ∈ Ω`.
+
 """
 function project_direction(x0::AbstractArray{T,N},
                            pm::PlusMinus, d::AbstractArray{T,N},
@@ -75,8 +78,7 @@ end
     ConvexSets.project_direction!(dst, x0, ±, d, Ω) -> dst
 
 overwrites `dst` by the feasible search direction and returns it. See
-[`ConvexSets.project_direction`](@ref) for a definition of the feasible search
-direction.
+[`ConvexSets.project_direction`](@ref) for more details.
 
 """
 function project_direction!(dst::AbstractArray{T,N}, x0::AbstractArray{T,N},
@@ -100,8 +102,7 @@ This method requires that the in-place version
 arguments.
 
 !!! warning
-    It is assumed that the variables `x0` are feasible, i.e. that `x0 ∈ Ω`;
-    this is not verified for efficiency reasons.
+    It is assumed that the variables `x0` are feasible, i.e. that `x0 ∈ Ω`.
 
 """
 function unblocked_variables(x0::AbstractArray{T,N},
@@ -124,8 +125,7 @@ depending whether variables are blocked or not by the constraints imposed by
 `Ω` when moving from `x0` in the direction `±d`.
 
 !!! warning
-    It is assumed that the variables `x0` are feasible, i.e. that `x0 ∈ Ω`;
-    this is not verified for efficiency reasons.
+    It is assumed that the variables `x0` are feasible, i.e. that `x0 ∈ Ω`.
 
 See [`ConvexSets.unblocked_variables`](@ref).
 
@@ -185,7 +185,7 @@ See also: [`ConvexSets.project_variables`](@ref),
 [`ConvexSets.line_search_limits`](@ref).
 
 """
-function line_search_max_step(x::AbstractArray{T,N},
+function line_search_max_step(x0::AbstractArray{T,N},
                               pm::PlusMinus,
                               d::AbstractArray{T,N},
                               Ω::ConvexSet{T,N}) where {T,N}

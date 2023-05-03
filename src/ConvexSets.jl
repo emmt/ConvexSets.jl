@@ -8,9 +8,12 @@ export
     UpperBound,
     project_variables,
     project_variables!,
+    project_direction,
     project_direction!,
-    unblocked_variable!,
-    line_search_limits
+    unblocked_variables,
+    unblocked_variables!,
+    line_search_limits,
+    line_search_max_step
 
 using AsType
 

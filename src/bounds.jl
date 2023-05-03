@@ -174,6 +174,18 @@ end
     return A
 end
 =#
+"""
+    AbstractBoxedSet{T,N}
+
+is the super-type of boxed set types for `N`-dimensional variables with values
+of type `T`. Any boxed set instance, say `Ω`, shall have the 2 following
+properties:
+
+    Ω.lower # is the lower bound
+    Ω.upper # is the upper bound
+
+"""
+abstract type AbstractBoxedSet{T,N} <: ConvexSet{T,N} end
 
 """
     BoxedSet{T,N}(lo, hi)
@@ -207,13 +219,26 @@ is_bounded_above(A::UniformUpperBound{T}) where {T} = A.value < typemax(T)
 is_bounded_above(A::UpperBound) = true
 is_bounded_above(B::BoxedSet) = is_bounded_above(B.upper)
 
+# Default implementations.
+function project_variables(x::AbstractArray{T,N},
+                           Ω::AbstractBoxedSet{T,N}) where {T,N}
+    return min.(max.(x, Ω.lower), Ω.upper)
+end
+function project_variables!(dst::AbstractArray{T,N}, x::AbstractArray{T,N},
+                            Ω::AbstractBoxedSet{T,N}) where {T,N}
+    dst .= min.(max.(x, Ω.lower), Ω.upper)
+    return dst
+end
+
+# Implementation for "standard" arrays.
 function project_variables!(dst::AbstractArray{T,N},
                             x::AbstractArray{T,N},
-                            Ω::BoxedSet{T,N,L,U}) where {T,N,L,U}
+                            Ω::BoxedSet{T,N}) where {T,N}
     inds = axes(x)
     axes(dst) == inds || throw(NOT_SAME_INDICES)
-    axes(Ω) == inds || throw(NOT_SAME_INDICES)
     lo, hi = Ω.lower, Ω.upper
+    axes(lo) == inds || throw(NOT_SAME_INDICES)
+    axes(hi) == inds || throw(NOT_SAME_INDICES)
     bounded_below = is_bounded_below(lo)
     bounded_above = is_bounded_above(hi)
     if bounded_below && bounded_above
@@ -234,47 +259,36 @@ function project_variables!(dst::AbstractArray{T,N},
     return dst
 end
 
-@inline fastmin(x::T, y::T) where {T} = x < y ? y : x
-@inline fastmax(x::T, y::T) where {T} = x > y ? y : x
+@inline fastmin(x::T, y::T) where {T} = x > y ? y : x
+@inline fastmax(x::T, y::T) where {T} = x < y ? y : x
 @inline fastclamp(x::T, lo::T, hi::T) where {T} =
     fastmin(fastmax(x, lo), hi)
 
-"""
-    ConvexSets.project_direction!(dst, x, ±, d, Ω) -> dst
-
-overwrites the entries of `dst` with `d[i]` or `zero(eltype(dst))` depending
-whether variables `x` are not blocked by the constraints imposed by `Ω` when
-moving in the direction `±d`.
-
-!!! warning
-    It is assumed that the variables are feasible, i.e. that `x ∈ Ω`; this is
-    not verified for efficiency reasons.
-
-"""
 function project_direction!(dst::AbstractArray{T,N},
                             x::AbstractArray{T,N},
                             pm::PlusMinus,
                             d::AbstractArray{T,N},
-                            Ω::BoxedSet{T,N,L,U}) where {T,N,L,U}
+                            Ω::BoxedSet{T,N}) where {T,N}
     inds = axes(x)
     axes(dst) == inds || throw(NOT_SAME_INDICES)
     axes(d) == inds || throw(NOT_SAME_INDICES)
-    axes(Ω) == inds || throw(NOT_SAME_INDICES)
     lo, hi = Ω.lower, Ω.upper
     bounded_below = is_bounded_below(lo)
     bounded_above = is_bounded_above(hi)
     if bounded_below && bounded_above
         @inbounds @simd for i in eachindex(dst, x, d, lo, hi)
-            x[i] = ifelse(isnegative(pm, d[i]), x[i] > lo[i], x[i] < hi[i],
-                          d[i], zero(T))
+            unblocked = ifelse(isnegative(pm, d[i]), x[i] > lo[i], x[i] < hi[i])
+            dst[i] = ifelse(unblocked, d[i], zero(T))
         end
     elseif bounded_below
         @inbounds @simd for i in eachindex(dst, x, d, lo)
-            x[i] = ifelse((x[i] > lo[i]) | ispositive(pm, d[i]), d[i], zero(T))
+            unblocked = (x[i] > lo[i]) | ispositive(pm, d[i])
+            dst[i] = ifelse(unblocked, d[i], zero(T))
         end
     elseif bounded_above
         @inbounds @simd for i in eachindex(dst, x, d, g, hi)
-            x[i] = ifelse((x[i] < hi[i]) | isnegative(pm, d[i]), d[i], zero(T))
+            unblocked = (x[i] < hi[i]) | isnegative(pm, d[i])
+            dst[i] = ifelse(unblocked, d[i], zero(T))
         end
     elseif dst !== d
         copyto!(dst, d)
@@ -290,16 +304,36 @@ end
 @inline isnegative(::Plus,  x::T) where {T} = isnegative(x)
 @inline isnegative(::Minus, x::T) where {T} = ispositive(x)
 
+# Default implementations.
+function unblocked_variables!(dst::AbstractArray{<:Any,N},
+                              x::AbstractArray{T,N},
+                              pm::PlusMinus,
+                              d::AbstractArray{T,N},
+                              Ω::AbstractBoxedSet{T,N}) where {T,N}
+    if pm isa Plus
+        dst .=
+            ((x .> Ω.lower) .| (d .≥ zero(eltype(d)))) .&
+            ((x .< Ω.upper) .| (d .≤ zero(eltype(d))))
+    else
+        dst .=
+            ((x .> Ω.lower) .| (d .≤ zero(eltype(d)))) .&
+            ((x .< Ω.upper) .| (d .≥ zero(eltype(d))))
+    end
+    return dst
+end
+
+# Implementation for "standard" arrays.
 function unblocked_variables!(dst::AbstractArray{<:Union{T,Bool},N},
                               x::AbstractArray{T,N},
                               pm::PlusMinus,
                               d::AbstractArray{T,N},
-                              Ω::BoxedSet{T,N,L,U}) where {T,N,L,U}
+                              Ω::BoxedSet{T,N}) where {T,N}
     inds = axes(x)
     axes(dst) == inds || throw(NOT_SAME_INDICES)
     axes(d) == inds || throw(NOT_SAME_INDICES)
-    axes(Ω) == inds || throw(NOT_SAME_INDICES)
     lo, hi = Ω.lower, Ω.upper
+    axes(lo) == inds || throw(NOT_SAME_INDICES)
+    axes(hi) == inds || throw(NOT_SAME_INDICES)
     bounded_below = is_bounded_below(lo)
     bounded_above = is_bounded_above(hi)
     if bounded_below && bounded_above
@@ -317,9 +351,7 @@ function unblocked_variables!(dst::AbstractArray{<:Union{T,Bool},N},
             dst[i] = (x[i] < hi[i]) | !ispositive(pm, d[i])
         end
     else
-        @inbounds @simd for i in eachindex(dst, x, d, hi)
-            dst[i] = one(eltype(dst))
-        end
+        fill!(dst, oneunit(eltype(dst)))
     end
     return dst
 end
@@ -327,12 +359,13 @@ end
 function line_search_limits(x::AbstractArray{T,N},
                             pm::PlusMinus,
                             d::AbstractArray{T,N},
-                            Ω::BoxedSet{T,N,L,U}) where {T,N,L,U}
+                            Ω::BoxedSet{T,N}) where {T,N}
     # Check arguments.
     inds = axes(x)
-    axes(dst) == inds || throw(NOT_SAME_INDICES)
     axes(d) == inds || throw(NOT_SAME_INDICES)
-    axes(Ω) == inds || throw(NOT_SAME_INDICES)
+    lo, hi = Ω.lower, Ω.upper
+    axes(lo) == inds || throw(NOT_SAME_INDICES)
+    axes(hi) == inds || throw(NOT_SAME_INDICES)
     # Initialize `αmin` and `αmax`. We rely on the behavior of comparions when
     # one of the operands is a NaN to update `αmax` as:
     #
@@ -341,7 +374,6 @@ function line_search_limits(x::AbstractArray{T,N},
     # which yields `α` if `αmax` is NaN as the test is false in this case.
     αmin = typemax(T)
     αmax = as(T, NaN)
-    lo, hi = Ω.lower, Ω.upper
     bounded_below = is_bounded_below(lo)
     bounded_above = is_bounded_above(hi)
     if bounded_below && bounded_above
