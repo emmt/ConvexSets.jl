@@ -11,11 +11,15 @@ Boxed sets are simple convex sets implementing separable lower and/or upper
 bounds for the variables. A boxed set is built as follows:
 
 ``` julia
-box = BoxedSet(lo, hi)
+Ω = BoxedSet(lo, hi)
 ```
 
 where `lo` and `hi` are objects respectively representing the lower and the
 upper bounds on the variables.
+
+Method `isempty(Ω)` can be called to figure out whether the boxed set `Ω` is
+empty. Expression `x ∈ Ω` yields whether variables `x` belong to the boxed set
+`Ω`.
 
 The `ConvexSets` package provides a number of different bound types:
 
@@ -73,6 +77,8 @@ these types.
 
 ## Methods
 
+### Projection on a convex set
+
 To make variables `x` feasible, their orthogonal projection on a convex set `Ω`
 is obtained by:
 
@@ -92,6 +98,9 @@ new convex sets are defined by sub-typing the abstract type `ConvexSet{T,N}`
 with `T` the element type of the variables and `N` their number of dimensions,
 the latter above method shall be specialized for the types of `dst`, `x`, and
 `Ω`.
+
+
+### Methods for line-search
 
 Many large scale numerical optimization methods update the variables as
 follows:
@@ -171,13 +180,13 @@ interest:
   implies:
 
   ``` julia
-  project_variables(x0 ± α*d, Ω) = x0 ± α*d
+  project_variables(x0 ± α⋅d, Ω) = x0 ± α⋅d
   ```
 
-* `αmax` is the least nonnegative step length such that `α ≥ αmax` implies:
+⋅ `αmax` is the least nonnegative step length such that `α ≥ αmax` implies:
 
   ``` julia
-  project_variables(x0 ± α⋅d, Ω) = project_variables(x0 ± αmax*d, Ω)
+  project_variables(x0 ± α⋅d, Ω) = project_variables(x0 ± αmax⋅d, Ω)
   ```
 
 In other words, the variables remain in `Ω` if `0 ≤ α ≤ αmin` and the projected

@@ -126,20 +126,13 @@ Base.axes(A::AbstractBound) = A.indices
 Base.size(A::AbstractBound) = map(length, axes(A))
 Base.length(A::AbstractBound) = prod(size(A))
 
-Base.IndexStyle(::Type{<:FreeBound}) = IndexLinear()
-@inline function Base.getindex(A::FreeLowerBound{T}, i::Int) where {T}
+Base.IndexStyle(::Type{<:Union{FreeBound,UniformBound}}) = IndexLinear()
+@inline Base.getindex(A::FreeLowerBound{T}) where {T} = typemin(T)
+@inline Base.getindex(A::FreeUpperBound{T}) where {T} = typemax(T)
+@inline Base.getindex(A::UniformBound) = A.value
+@inline function Base.getindex(A::Union{FreeBound,UniformBound}, i::Int)
     @boundscheck checkbounds(A, i)
-    return typemin(T)
-end
-@inline function Base.getindex(A::FreeUpperBound{T}, i::Int) where {T}
-    @boundscheck checkbounds(A, i)
-    return typemax(T)
-end
-
-Base.IndexStyle(::Type{<:UniformBound}) = IndexLinear()
-@inline function Base.getindex(A::UniformBound, i::Int)
-    @boundscheck checkbounds(A, i)
-    return A.value
+    return @inbounds getindex(A)
 end
 
 Base.parent(A::ElementWiseBound) = A.values
@@ -194,6 +187,10 @@ yields an object specifying lower bound `lo` and upper bound `hi` for
 `N`-dimensional variables of type `T`. If not specified, parameters `T` and `N`
 are determined from the arguments.
 
+Method `isempty(Ω)` can be called to figure out whether the boxed set `Ω` is
+empty. Expression `x ∈ Ω` yields whether variables `x` belong to the boxed set
+`Ω`.
+
 See also [`ConvexSets.LowerBound`](@ref) and [`ConvexSets.UpperBound`](@ref).
 
 """
@@ -219,11 +216,56 @@ is_bounded_above(A::UniformUpperBound{T}) where {T} = A.value < typemax(T)
 is_bounded_above(A::UpperBound) = true
 is_bounded_above(B::BoxedSet) = is_bounded_above(B.upper)
 
+is_uniform(A::AbstractBound) = is_uniform(typeof(A))
+is_uniform(::Type{<:FreeBound}) = true
+is_uniform(::Type{<:UniformBound}) = true
+is_uniform(::Type{<:AbstractBound}) = false
+
+function Base.isempty(Ω::BoxedSet)
+    lo, hi = Ω.lower, Ω.upper
+    if is_uniform(lo) && is_uniform(hi)
+        return lo[] > hi[]
+    else
+        flag = false
+        @inbounds @simd for i in eachindex(lo, hi)
+            flag |= lo[i] > hi[i]
+        end
+        return flag
+    end
+end
+
+function Base.in(x::AbstractArray{T,N}, Ω::BoxedSet{T,N}) where {T,N}
+    inds = axes(x)
+    lo, hi = Ω.lower, Ω.upper
+    axes(lo) == inds || throw(NOT_SAME_INDICES)
+    axes(hi) == inds || throw(NOT_SAME_INDICES)
+    flag = true
+    bounded_below = is_bounded_below(lo)
+    bounded_above = is_bounded_above(hi)
+    if bounded_below && bounded_above
+        @inbounds @simd for i in eachindex(x, lo, hi)
+            flag &= lo[i] ≤ x[i] ≤ hi[i]
+        end
+    elseif bounded_below
+        @inbounds @simd for i in eachindex(x, lo)
+            flag &= lo[i] ≤ x[i]
+        end
+    elseif bounded_above
+        @inbounds @simd for i in eachindex(x, hi)
+            flag &= x[i] ≤ hi[i]
+        end
+    elseif dst !== x
+        copyto!(dst, x)
+    end
+    return flag
+end
+
 # Default implementations.
 function project_variables(x::AbstractArray{T,N},
                            Ω::AbstractBoxedSet{T,N}) where {T,N}
     return min.(max.(x, Ω.lower), Ω.upper)
 end
+
 function project_variables!(dst::AbstractArray{T,N}, x::AbstractArray{T,N},
                             Ω::AbstractBoxedSet{T,N}) where {T,N}
     dst .= min.(max.(x, Ω.lower), Ω.upper)

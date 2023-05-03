@@ -8,7 +8,7 @@ using ConvexSets:
     FreeBound, FreeLowerBound, FreeUpperBound,
     UniformBound, UniformLowerBound, UniformUpperBound,
     ElementWiseBound, ElementWiseLowerBound, ElementWiseUpperBound,
-    is_bounded_below, is_bounded_above
+    is_bounded_below, is_bounded_above, is_uniform
 
 # Simple structure to check reefrence implementations.
 struct SimpleBox{T,N,
@@ -18,9 +18,17 @@ struct SimpleBox{T,N,
     upper::U
 end
 
-
-
 @testset "Convex sets" begin
+    @testset "Utilities" begin
+        let to_indices = ConvexSets.to_indices
+            @test to_indices(2) === Base.OneTo(2)
+            @test to_indices(Int16(3)) === Base.OneTo(3)
+            @test to_indices(Base.OneTo(4)) === Base.OneTo(4)
+            @test to_indices(Base.OneTo{Int16}(5)) === Base.OneTo(5)
+            @test to_indices(-2:6) === -2:6
+            @test to_indices(Int16(-3):Int16(7)) === -3:7
+        end
+    end
     dims = (4,3,2)
     N = length(dims)
     T = Float32
@@ -31,6 +39,7 @@ end
         @test size(b) == dims
         @test all(b .=== typemin(T))
         @test !is_bounded_below(b)
+        @test is_uniform(b)
         @test_throws MethodError UpperBound{T,N+1}(nothing, dims)
         b = @inferred UpperBound{T,N}(nothing, dims...)
         @test b isa AbstractArray{T,N}
@@ -38,6 +47,7 @@ end
         @test size(b) == dims
         @test all(b .=== typemax(T))
         @test !is_bounded_above(b)
+        @test is_uniform(b)
     end
     @testset "Uniform bounds" begin
         # Uniform lower bound equivalent to free bound.
@@ -49,6 +59,7 @@ end
         @test size(b) == dims
         @test all(b .=== typemin(T))
         @test !is_bounded_below(b)
+        @test is_uniform(b)
         # Uniform upper bound equivalent to free bound.
         @test_throws MethodError UpperBound{T,N+1}(+Inf, dims)
         b = @inferred UpperBound(T(Inf), dims...)
@@ -59,13 +70,16 @@ end
         @test size(b) == dims
         @test all(b .=== typemax(T))
         @test !is_bounded_above(b)
+        @test is_uniform(b)
         # Constraining uniform bounds.
         b = @inferred LowerBound(zero(T), dims...)
         @test all(b .=== zero(T))
         @test is_bounded_below(b)
+        @test is_uniform(b)
         b = @inferred UpperBound(one(T), dims...)
         @test all(b .=== one(T))
         @test is_bounded_above(b)
+        @test is_uniform(b)
     end
     xmin = zeros(T, dims)
     xmax = reshape(zero(T):length(xmin)-1, dims)
@@ -80,6 +94,7 @@ end
         @test size(b) == dims
         @test all(b .=== xmin)
         @test is_bounded_below(b)
+        @test !is_uniform(b)
         # Upper bound.
         @test_throws MethodError UpperBound{T,N+1}(xmax)
         b = @inferred UpperBound(xmax)
@@ -90,6 +105,7 @@ end
         @test size(b) == dims
         @test all(b .=== xmax)
         @test is_bounded_above(b)
+        @test !is_uniform(b)
     end
     @testset "Boxed sets" begin
         lo = @inferred LowerBound(xmin)
@@ -100,13 +116,16 @@ end
         Ωs = SimpleBox(xmin, xmax)
         @test is_bounded_below(Ω) == is_bounded_below(lo)
         @test is_bounded_above(Ω) == is_bounded_above(hi)
+        @test !isempty(Ω)
         x = similar(xmin, T)
         flag = false
         for i in eachindex(x, lo, hi)
             x[i] = flag ? lo[i] - 1 : hi[i] + 1
             flag = !flag
         end
+        @test !(x ∈ Ω)
         xp = @inferred project_variables(x, Ω)
+        @test xp ∈ Ω
         @test xp == min.(max.(x, xmin), xmax)
         @test xp == min.(max.(x, lo), hi)
         @test xp == @inferred project_variables(x, Ωs)
