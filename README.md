@@ -7,8 +7,8 @@ represent strict constraints in large scale optimization problems in Julia.
 
 ## Boxed sets
 
-Boxed sets are simple convex sets implementing separable lower and/or bounds
-for the variables. A boxed set is built as follows:
+Boxed sets are simple convex sets implementing separable lower and/or upper
+bounds for the variables. A boxed set is built as follows:
 
 ``` julia
 box = BoxedSet(lo, hi)
@@ -43,7 +43,7 @@ The `ConvexSets` package provides a number of different bound types:
   hi = UpperBound{T}(val, dims)
   ```
 
-  and automatically converts the value `val` to type `T`. Free bounds may also
+  will automatically convert the value `val` to type `T`. Free bounds may also
   be built by:
 
   ``` julia
@@ -53,7 +53,7 @@ The `ConvexSets` package provides a number of different bound types:
 
   but may be slightly less efficient.
 
-* **Element-wse bounds** are  built by:
+* **Element-wise bounds** are  built by:
 
   ``` julia
   lo = LowerBound(vals)
@@ -61,11 +61,11 @@ The `ConvexSets` package provides a number of different bound types:
   ```
 
   with `vals` the array of bound values which must have the same indices as the
-  variables. Note that if all values of `vals` are the same it is more
+  variables. Note that if all values of `vals` are the same, it is more
   efficient to build a uniform bound object which requires almost no storage
-  and which is faster to use (no needs to index to retrieve the value).
+  and which is faster to use.
 
-Of course, the lower and upper bounds in a boxed set may be of different type.
+Of course, the lower and upper bounds in a boxed set may be of different types.
 Other means to specify the bounds can be defined by sub-typing the abstract
 type `ConvexSets.AbstractBound` and by extending the abstract array API for
 these types.
@@ -90,7 +90,8 @@ project_variables!(dst, x, Ω) -> dst
 overwrite their first argument with the projected variables and return them. If
 new convex sets are defined by sub-typing the abstract type `ConvexSet{T,N}`
 with `T` the element type of the variables and `N` their number of dimensions,
-the latter above methods shall be specialized.
+the latter above method shall be specialized for the types of `dst`, `x`, and
+`Ω`.
 
 Many large scale numerical optimization methods update the variables as
 follows:
@@ -107,11 +108,11 @@ solving:
 α ≈ arg min f(x0 ± α⋅d)   s.t.   α ≥ 0
 ```
 
-where `f(x)` is the objective function. The `±` sign is not a free parameter,
-it depends on how the search direction is computed and on the objective. If (as
-assumed above) the objective is to minimize `f(x)`, then `±d` shall be a
-descent direction; otherwise, `±d` shall be a ascent direction to maximize the
-objective function.
+where `f(x)` is the objective function. Here, whether `±` is a `+` or a `-` is
+not a free parameter, it depends on how the search direction is computed and on
+the objective. If (as assumed above) the objective is to minimize `f(x)`, then
+`±d` shall be a descent direction; otherwise, `±d` shall be an ascent direction
+to maximize the objective function.
 
 If strict constraints are implemented on the variables by a convex set `Ω`, the
 above statement becomes:
@@ -120,7 +121,7 @@ above statement becomes:
 α ≈ arg min f(project_variables(x0 ± α⋅d, Ω))   s.t.   α ≥ 0
 ```
 
-and a few methods are useful in the constrained case.
+and a few methods are useful in this constrained case.
 
 A first such method is:
 
@@ -139,17 +140,14 @@ for some `ϵ > 0`. In other words, searching along the direction `p` is
 equivalent to searching along `d` (starting at `x0`) but the initial part of
 the line-search along `p` is inside the feasible set `Ω`.
 
-``` julia
-p = project_direction(x, ±, d, Ω)
-```
-
-Another such method is:
+Another useful method is:
 
 ``` julia
-u = unblocked_variables(S, x0, ±, d, Ω) -> u
+u = unblocked_variables(S, x0, ±, d, Ω)
 ```
 
-which yields an array `u` whose elements are of type `S` and such that:
+which yields an array `u` of same size as `x0` and `d`, whose elements are of
+type `S`, and such that:
 
 ``` julia
 u[i] = one(S)   if project_variables(x0 ± α⋅d, Ω)[i] != x0[i]
@@ -157,9 +155,9 @@ u[i] = one(S)   if project_variables(x0 ± α⋅d, Ω)[i] != x0[i]
 ```
 
 for any non-negligible value of `α` and assuming that the variables `x0` are
-feasible, i.e. that `x0 ∈ Ω`.
+feasible, i.e. such that `x0 ∈ Ω`.
 
-Note that the feasible direction `p` can also be defined by:
+Note that the feasible direction `p` could also have been defined by:
 
 ``` julia
 p = unblocked_variables(x0 ± α⋅d, Ω) .* d
@@ -169,14 +167,14 @@ Finally, in a line-search, to avoid projecting variables when this is
 unnecessary or searching with too long steps, the following step limits are of
 interest:
 
-* `αmin` is the largest nonnegative step length such that `0 ≤ α ≤ amin`
+* `αmin` is the largest nonnegative step length such that `0 ≤ α ≤ αmin`
   implies:
 
   ``` julia
   project_variables(x0 ± α*d, Ω) = x0 ± α*d
   ```
 
-* `αmax` is the least nonnegative step length such that `α ≥ amax` implies:
+* `αmax` is the least nonnegative step length such that `α ≥ αmax` implies:
 
   ``` julia
   project_variables(x0 ± α⋅d, Ω) = project_variables(x0 ± αmax*d, Ω)
